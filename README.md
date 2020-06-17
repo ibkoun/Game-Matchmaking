@@ -1,2 +1,2 @@
 # Overview
-This project a simulation of a matchmaking system using the Elo rating. The server and clients use low-level sockets to establish a connection, and the latter can send commands to the former.
+This project is a simulation of a matchmaking system using the Elo rating formula. The server and the clients use low-level sockets to establish a connection and exchange information.
