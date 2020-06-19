@@ -77,7 +77,8 @@ class ClientThread(Thread):
                     profile = json.dumps(self.player.info)
                     self.connection.send(str.encode(profile))
                 elif command == Commands.LEADERBOARD.value:
-                    leaderboard = self.server.competitive_matchmaking.leaderboard.copy()
+                    leaderboard = sorted(self.server.competitive_matchmaking.leaderboard,
+                                         key=lambda x: x.info[Info.RATING.value], reverse=True)
                     count = len(leaderboard)
                     data = json.dumps(count)
                     self.connection.send(str.encode(data))  # Send the total number of players to display.
