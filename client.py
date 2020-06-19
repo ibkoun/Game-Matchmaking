@@ -17,6 +17,7 @@ class Commands(Enum):
     CASUAL = "CASUAL"
     COMPETITIVE = "COMPETITIVE"
     PROFILE = "PROFILE"
+    LEADERBOARD = "LEADERBOARD"
 
 
 class AutomatedClient(Thread):
@@ -75,8 +76,7 @@ class AutomatedClient(Thread):
                     command = random.choice(self.post_credentials_commands)
                     self.socket.send(str.encode(command))
                     result = self.socket.recv(2048)
-            except socket.error as e:
-                print(e)
+            except socket.error:
                 self.socket.close()
                 return
 
@@ -84,7 +84,7 @@ class AutomatedClient(Thread):
 class ManualClient:
     def __init__(self, host="127.0.0.1", port=1233):
         self.pre_credentials_commands = [Commands.SIGN_UP.value, Commands.SIGN_IN.value]
-        self.post_credentials_commands = [Commands.COMPETITIVE.value, Commands.PROFILE.value]
+        self.post_credentials_commands = [Commands.COMPETITIVE.value, Commands.PROFILE.value, Commands.LEADERBOARD.value]
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.host = host
@@ -93,11 +93,11 @@ class ManualClient:
     def execute(self):
         while True:
             try:
-                self.socket.connect((self.host, self.port))
-
                 # Before signing up/signing in.
+                self.socket.connect((self.host, self.port))
                 while True:
-                    command = input("\nEnter your commands (type 'help' for a list of commands): ").upper()
+                    client_input = input("\nEnter your command (type 'help' for a list of commands): ")
+                    command = client_input.upper()
                     if command == Commands.HELP.value:
                         print("\nAvailable commands:")
                         for i in range(len(self.pre_credentials_commands)):
@@ -137,11 +137,12 @@ class ManualClient:
                         else:
                             print("\nInvalid credentials.")
                     else:
-                        print("\nInvalid command.")
+                        print("\n'{}' is an invalid command.".format(client_input))
 
                 # After signing up/signing in.
                 while True:
-                    command = input("\nEnter your command (type 'help' for a list of commands): ").upper()
+                    client_input = input("\nEnter your command (type 'help' for a list of commands): ")
+                    command = client_input.upper()
                     if command == Commands.HELP.value:
                         print("\nAvailable commands:")
                         for i in range(len(self.pre_credentials_commands)):
@@ -149,21 +150,71 @@ class ManualClient:
                     elif command == Commands.COMPETITIVE.value:
                         self.socket.send(str.encode(command))
                         print("\nSearching for a game...")
-                        result = self.socket.recv(2048)
-                        print(result.decode("utf-8"))
+                        data = self.socket.recv(2048)
+                        result = json.loads(data.decode("utf-8"))
+                        max_username_length = 0
+                        headers = list(result.keys())
+                        for player in result[headers[0]]:
+                            username_length = len(player[Info.USERNAME.value])
+                            if username_length > max_username_length:
+                                max_username_length = username_length
+                        padding = 5
+                        total_padding = max_username_length + padding
+                        dash = "-" * total_padding * len(result[headers[0]][0])
+                        columns = "%-{}s".format(total_padding) * len(result[headers[0]][0])
+                        for header in headers:
+                            print("\n" + header)
+                            print(dash)
+                            print(columns % tuple([key for key in result[header][0]]))
+                            print(dash)
+                            for player in result[header]:
+                                print(columns % tuple([value for value in player.values()]))
                     elif command == Commands.PROFILE.value:
                         self.socket.send(str.encode(command))
                         data = self.socket.recv(2048)
                         profile = json.loads(data.decode("utf-8"))
+                        dash = "-" * (len(profile[Info.USERNAME.value]) + len(Info.USERNAME.value))
                         print("\nPROFILE")
-                        for info in profile:
-                            print("{}: {}".format(info, profile[info]))
+                        print(dash)
+                        for key in profile:
+                            print("{}: {}".format(key, profile[key]))
+                    elif command == Commands.LEADERBOARD.value:
+                        self.socket.send(str.encode(command))
+                        data = self.socket.recv(1024)
+                        count = json.loads(data.decode("utf-8"))  # Receive the total number of players to display.
+                        max_username_length = 0
+                        players = []
+                        while count > 0:
+                            data = self.socket.recv(4096)
+                            leaderboard = json.loads(data.decode("utf-8"))
+                            players += leaderboard
+                            for player in leaderboard:
+                                count -= 1
+                                username = player[Info.USERNAME.value]
+                                username_length = len(username)
+                                if username_length > max_username_length:
+                                    max_username_length = username_length
+                            data = json.dumps(count)
+                            self.socket.send(str.encode(data))  # Send a response to the server before continuing.
+                        padding = 5
+                        total_padding = max_username_length + padding
+                        dash = "-" * total_padding * len(players[0])
+                        print("\nLEADERBOARD")
+                        print(dash)
+                        columns = "%-{}s".format(total_padding) * len(players[0])
+                        print(columns % tuple([key for key in players[0]]))
+                        print(dash)
+                        for player in players:
+                            print(columns % tuple([value for value in player.values()]))
                     elif command == Commands.SIGN_OUT.value:
                         pass
                     else:
-                        print("\nInvalid command.")
+                        print("\n'{}' is an invalid command.".format(client_input))
+            except json.JSONDecodeError as e:
+                print(e)
             except socket.error as e:
                 print(e)
+                print("Server is disconnected.")
                 self.socket.close()
                 return
 

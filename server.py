@@ -4,7 +4,7 @@ import random
 import json
 import concurrent.futures
 from client import Commands, AutomatedClient
-from threading import Thread, Condition, Event
+from threading import Thread, Condition, Event, Lock
 from player import Player, Status, Info
 from lobby import SoloLobby
 
@@ -48,6 +48,7 @@ class ClientThread(Thread):
                         self.server.accounts[username] = account
                         self.connection.send(str.encode(confirmation))
                         self.player = player
+                        self.player.online()
                         print("{} has connected.".format(username))
                 elif command == Commands.SIGN_IN.value:
                     account = {Info.USERNAME.value: None, Info.PASSWORD.value: None}
@@ -64,6 +65,7 @@ class ClientThread(Thread):
                             self.connection.send(str.encode(confirmation))
                             self.player = self.server.players[username]
                             self.player.info[Info.STATUS.value] = Status.ONLINE.value
+                            self.player.online()
                             print("{} has connected.".format(username))
                         else:
                             confirmation = json.dumps(False)
@@ -74,6 +76,26 @@ class ClientThread(Thread):
                 elif command == Commands.PROFILE.value:
                     profile = json.dumps(self.player.info)
                     self.connection.send(str.encode(profile))
+                elif command == Commands.LEADERBOARD.value:
+                    leaderboard = self.server.competitive_matchmaking.leaderboard.copy()
+                    count = len(leaderboard)
+                    data = json.dumps(count)
+                    self.connection.send(str.encode(data))  # Send the total number of players to display.
+                    players = []
+                    for player in leaderboard:
+                        count -= 1
+                        rank = player.info[Info.RANK.value]
+                        username = player.info[Info.USERNAME.value]
+                        rating = player.info[Info.RATING.value]
+                        rating_class = player.info[Info.CLASS.value]
+                        players.append({Info.RANK.value: rank, Info.USERNAME.value: username,
+                                        Info.RATING.value: rating, Info.CLASS.value: rating_class})
+                        if len(players) % 50 == 0 or count == 0:  # Display 50 players (or less) at a time.
+                            data = json.dumps(players)
+                            self.connection.send(str.encode(data))
+                            players.clear()
+                            data = self.connection.recv(1024)
+                            count = json.loads(data.decode("utf-8"))  # Wait for response before continuing.
                 elif command == Commands.CASUAL.value:
                     pass
                 elif command == Commands.COMPETITIVE.value:
@@ -86,8 +108,15 @@ class ClientThread(Thread):
                     with self.player_condition:
                         self.player_condition.wait_for(self.player_in_game)
                         self.match.wait()
+            except json.JSONDecodeError as e:
+                print(e)
             except socket.error as e:
                 print(e)
+                if self.player:
+                    self.player.offline()
+                    print("{} has disconnected.".format(self.player.info[Info.USERNAME.value]))
+                self.connection.close()
+                del self
                 return
 
 
@@ -117,19 +146,21 @@ class SoloLobbyThread(Thread):
         with self.lobby_condition:
             self.lobby_condition.wait_for(self.ready)
             self.lobby.predict_outcome()
-            before = self.lobby.display_players("BEFORE")
-            predictions = self.lobby.display_predictions("PREDICTIONS")
+            before = self.lobby.display_players()
+            predictions = self.lobby.display_predictions()
             for player_thread in self.players_threads:
                 with player_thread.player_condition:
-                    player_thread.player.info[Info.STATUS.value] = Status.IN_GAME.value
+                    player_thread.player.in_game()
                     player_thread.player_condition.notify()
             self.lobby.simulate_match(self.matchmaking_system.rated)
             time.sleep(random.randint(2, 5))
-            after = self.lobby.display_players("AFTER")
-            result = before + "\n" + predictions + "\n" + after
+            after = self.lobby.display_players()
+            result = {"BEFORE": before, "PREDICTIONS": predictions, "AFTER": after}
             for player_thread in self.players_threads:
-                player_thread.connection.send(str.encode(result))
-                player_thread.player.info[Info.STATUS.value] = Status.ONLINE.value
+                data = json.dumps(result)
+                player_thread.connection.send(str.encode(data))
+                player_thread.player.online()
+            self.matchmaking_system.update_leaderboard(self.lobby.players)
             self.matchmaking_system.lobbies.remove(self)
             self.match.set()
             del self
@@ -143,12 +174,23 @@ class MatchmakingSystem(Thread):
         self.capacity = capacity
         self.rated = rated
         self.leaderboard = []
+        self.refresh_lock = Lock()
         self.queue = []
         self.lobbies = []
         self.queue_condition = Condition()
 
     def players_in_queue(self):
         return len(self.queue) > 0
+
+    def update_leaderboard(self, players):
+        self.refresh_lock.acquire()
+        for player in players:
+            if not player.info[Info.RANK.value]:
+                self.leaderboard.append(player)
+        self.leaderboard.sort(key=lambda x: x.info[Info.RATING.value], reverse=True)
+        for i in range(len(self.leaderboard)):
+            self.leaderboard[i].info[Info.RANK.value] = i + 1
+        self.refresh_lock.release()
 
     def matchmaking(self):
         while True:
@@ -195,7 +237,7 @@ class Server:
         self.accounts = {}
         self.players = {}
         self.threads = []
-        #self.casual_matchmaking = MatchmakingSystem(self, 2, False)
+        # self.casual_matchmaking = MatchmakingSystem(self, 2, False)
         # self.casual_matchmaking.daemon = True
         self.competitive_matchmaking = MatchmakingSystem(self, 2, True)
         self.competitive_matchmaking.daemon = True
@@ -212,7 +254,7 @@ class Server:
             self.socket.bind((self.host, self.port))
             print("\nWaiting for a connection...")
             self.competitive_matchmaking.start()
-            self.populate(100)
+            self.populate(200)
             while True:
                 self.socket.listen(5)
                 (connection, (address, port)) = self.socket.accept()

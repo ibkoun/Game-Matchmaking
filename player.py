@@ -67,7 +67,19 @@ class Player:
                      Info.WINS.value: 0,
                      Info.LOSSES.value: 0,
                      Info.WIN_RATIO.value: 0,
-                     Info.STATUS.value: Status.ONLINE.value}
+                     Info.STATUS.value: Status.OFFLINE.value}
+
+    def online(self):
+        self.info[Info.STATUS.value] = Status.ONLINE.value
+
+    def offline(self):
+        self.info[Info.STATUS.value] = Status.OFFLINE.value
+
+    def in_queue(self):
+        self.info[Info.STATUS.value] = Status.IN_QUEUE.value
+
+    def in_game(self):
+        self.info[Info.STATUS.value] = Status.IN_GAME.value
 
     # Predict the chance of a player of getting 1st, ..., nth place against other players.
     def predict_placements(self, odds):

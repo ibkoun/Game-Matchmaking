@@ -38,22 +38,26 @@ class SoloLobby:
         self.players[j] = self.players[i]
         self.players[i] = player
 
-    def display_players(self, title):
-        display = "\n" + title + "\n%-10s %-10s %10s" % ("Rank", "Player", "Rating")
+    def display_players(self):
+        players = []
         for i in range(len(self.players)):
             username = self.players[i].info[Info.USERNAME.value]
             rating = self.players[i].info[Info.RATING.value]
-            display += "\n%-10s %-10s %10s" % (i + 1, username, rating)
-        return display
+            rating_class = self.players[i].info[Info.CLASS.value]
+            players.append({Info.RANK.value: i + 1, Info.USERNAME.value: username, Info.RATING.value: rating,
+                            Info.CLASS.value: rating_class})
+        return players
 
-    def display_predictions(self, title):
-        display = "\n" + title + "\n%-10s %-10s %10s" % ("Rank", "Player", "Rating")
+    def display_predictions(self):
+        players = []
         for player in self.players:
             username = player.info[Info.USERNAME.value]
             rating = player.info[Info.RATING.value]
+            rating_class = player.info[Info.CLASS.value]
             expected_score = sum((i + 1) * self.predictions[username][i] for i in range(len(self.predictions[username])))
-            display += "\n%-10s %-10s %10s" % (round(expected_score, 2), username, rating)
-        return display
+            players.append({Info.RANK.value: round(expected_score, 2), Info.USERNAME.value: username, Info.RATING.value: rating,
+                            Info.CLASS.value: rating_class})
+        return players
 
     def predict_outcome(self):
         # Calculate the odds of winning for each player.
