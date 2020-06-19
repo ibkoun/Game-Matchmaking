@@ -254,7 +254,9 @@ class Server:
             self.socket.bind((self.host, self.port))
             print("\nWaiting for a connection...")
             self.competitive_matchmaking.start()
-            self.populate(200)
+            populate_thread = Thread(target=self.populate, args=(200,))
+            populate_thread.daemon = True
+            populate_thread.start()
             while True:
                 self.socket.listen(5)
                 (connection, (address, port)) = self.socket.accept()
